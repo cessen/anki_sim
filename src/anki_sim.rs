@@ -10,14 +10,17 @@ pub struct AnkiSim {
     cards_added: u32,
     time_spent_on_new: f32,
     time_spent_on_review: f32,
+    days_past: u32,
+    review_count: u32,
+    lapse_count: u32,
 
     // Auto-calculated settings
-    retention_ratio: f32, // Determined by interval_factor and typical_retention_ratio.
+    retention_ratio: f32, // Determined by interval_factor and measured_retention.
 
     // Settings
     interval_factor: f32, // Multiplier for card intervals on "good" answer.
     lapse_interval_factor: f32, // Multiplier for card intervals on "again" answer.
-    typical_retention_ratio: f32,
+    measured_retention: (f32, f32), // Retention ratio, interval factor of that ratio
     difficulty_variance: f32,
     max_lapses: u32,
     new_cards_per_day: u32, // Only actually matters for statistical accuracy.
@@ -32,12 +35,15 @@ impl AnkiSim {
             cards_added: 0,
             time_spent_on_new: 0.0,
             time_spent_on_review: 0.0,
+            days_past: 0,
+            review_count: 0,
+            lapse_count: 0,
 
             retention_ratio: 0.9,
 
             interval_factor: 2.5,
             lapse_interval_factor: 0.0,
-            typical_retention_ratio: 0.9,
+            measured_retention: (0.9, 2.5),
             difficulty_variance: 0.05,
             max_lapses: 8,
             new_cards_per_day: 100,
@@ -46,9 +52,13 @@ impl AnkiSim {
         }
     }
 
+    pub fn average_retention_ratio(&self) -> f32 {
+        self.retention_ratio
+    }
+
     fn set_retention_ratio(&mut self) {
-        self.retention_ratio =
-            (self.interval_factor / 2.5 * self.typical_retention_ratio.ln()).exp();
+        self.retention_ratio = (self.interval_factor / self.measured_retention.1
+            * self.measured_retention.0.ln()).exp();
     }
 
     pub fn with_difficulty_variance(self, variance: f32) -> Self {
@@ -70,9 +80,9 @@ impl AnkiSim {
         tmp
     }
 
-    pub fn with_typical_retention_ratio(self, ratio: f32) -> Self {
+    pub fn with_measured_retention_ratio(self, ratio: f32, interval: f32) -> Self {
         let mut tmp = self;
-        tmp.typical_retention_ratio = ratio;
+        tmp.measured_retention = (ratio, interval);
         tmp.set_retention_ratio();
         tmp
     }
@@ -106,11 +116,14 @@ impl AnkiSim {
 
     /// Simulates a single day.
     pub fn simulate_day(&mut self) {
+        self.days_past += 1;
+
         // Do scheduled reviews.
         let mut i = 0;
         while i < self.deck.len() {
             if self.deck[i].days_since_last_review >= self.deck[i].interval {
                 // Do review.
+                self.review_count += 1;
                 self.time_spent_on_review += self.time_per_review_card;
                 if self.deck[i].is_remembered() {
                     // Good
@@ -123,9 +136,11 @@ impl AnkiSim {
                         (self.deck[i].interval * self.lapse_interval_factor).max(1.0);
                     self.deck[i].days_since_last_review = 0.0;
                     self.deck[i].lapses += 1;
+                    self.lapse_count += 1;
                 } else {
                     // Lapsed past max lapses
                     self.deck.swap_remove(i);
+                    self.lapse_count += 1;
                     continue;
                 }
             } else {
@@ -183,6 +198,10 @@ impl AnkiSim {
     /// In hours.
     pub fn new_time(&self) -> f32 {
         self.time_spent_on_new / 3600.0
+    }
+
+    pub fn lapses_per_review(&self) -> f32 {
+        self.lapse_count as f32 / self.review_count as f32
     }
 }
 
