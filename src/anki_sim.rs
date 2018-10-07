@@ -26,6 +26,7 @@ pub struct AnkiSim {
     new_cards_per_day: u32, // Only actually matters for statistical accuracy.
     time_per_new_card: f32,
     time_per_review_card: f32,
+    time_per_lapsed_card: f32,
 }
 
 impl AnkiSim {
@@ -49,6 +50,7 @@ impl AnkiSim {
             new_cards_per_day: 100,
             time_per_new_card: 90.0,
             time_per_review_card: 20.0,
+            time_per_lapsed_card: 40.0,
         }
     }
 
@@ -114,6 +116,13 @@ impl AnkiSim {
         tmp
     }
 
+    /// Average number of seconds spent on each review.
+    pub fn with_seconds_per_lapsed_card(self, time: f32) -> Self {
+        let mut tmp = self;
+        tmp.time_per_lapsed_card = time;
+        tmp
+    }
+
     /// Simulates a single day.
     pub fn simulate_day(&mut self) {
         self.days_past += 1;
@@ -137,6 +146,7 @@ impl AnkiSim {
                     self.deck[i].days_since_last_review = 0.0;
                     self.deck[i].lapses += 1;
                     self.lapse_count += 1;
+                    self.time_spent_on_review += self.time_per_lapsed_card;
                 } else {
                     // Lapsed past max lapses
                     self.deck.swap_remove(i);
@@ -182,11 +192,14 @@ impl AnkiSim {
         count
     }
 
-    /// Calculates the number of cards learned per time unit spent on reviews and new cards.
-    ///
-    /// Will only count cards with intervals larger than a given number of days.
-    pub fn cards_learned_per_hour(&self, with_intervals_larger_than: u32) -> f32 {
-        let count = self.cards_with_interval_or_greater(with_intervals_larger_than);
+    pub fn known_cards(&self) -> u32 {
+        let retained = -(1.0 - self.retention_ratio) / self.retention_ratio.ln();
+        (self.deck.len() as f64 * retained as f64) as u32
+    }
+
+    /// Calculates the number of cards learned per hour spent on reviews and new cards.
+    pub fn cards_learned_per_hour(&self) -> f32 {
+        let count = self.known_cards();
         count as f32 / (self.time_spent_on_new + self.time_spent_on_review) * 3600.0
     }
 

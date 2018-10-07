@@ -10,7 +10,7 @@ use std::io::Write;
 
 fn main() {
     // generate_chart("yar.png", 10, false, (2.0, 19.75), 18 * 4, (0.01, 1.0), 100);
-    print_vertical_slice(100, (2.0, 10.0), 33, 0.8);
+    print_vertical_slice(100, (2.0, 10.0), 33, 0.9);
 }
 
 fn print_vertical_slice(
@@ -28,18 +28,20 @@ fn print_vertical_slice(
             .with_interval_factor(interval_factor)
             .with_measured_retention_ratio(measured_retention, 2.5)
             .with_lapse_interval_factor((1.0 / interval_factor).sqrt())
-            .with_difficulty_variance(0.05)
-            .with_max_lapses(8)
+            .with_difficulty_variance(0.0)
+            .with_max_lapses(999999)
             .with_new_cards_per_day(samples)
-            .with_seconds_per_new_card(120.0)
-            .with_seconds_per_review_card(20.0);
+            .with_seconds_per_new_card(60.0 * 3.0)
+            .with_seconds_per_review_card(20.0)
+            .with_seconds_per_lapsed_card(40.0);
 
         anki.simulate_n_days(365);
 
         println!(
-            "Interval Factor: {:.2}  |  Cards learned per hour: {:.2}",
+            "Interval Factor: {:.2}  |  Cards learned per hour: {:.2}  |  Lapse ratio: {:.2}",
             interval_factor,
-            anki.cards_learned_per_hour(0),
+            anki.cards_learned_per_hour(),
+            anki.lapses_per_review(),
         );
     }
 }
@@ -76,7 +78,7 @@ fn generate_chart(
                 .with_seconds_per_review_card(20.0);
 
             anki.simulate_n_days(365);
-            chart[y * width + x] = anki.cards_learned_per_hour(0);
+            chart[y * width + x] = anki.cards_learned_per_hour();
 
             print!(
                 "\r{:.1}%",
