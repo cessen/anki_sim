@@ -23,7 +23,6 @@ pub struct AnkiSim {
     measured_retention: (f32, f32), // Retention ratio, interval factor of that ratio
     difficulty_variance: f32,
     max_lapses: u32,
-    new_cards_per_day: u32, // Only actually matters for statistical accuracy.
     time_per_new_card: f32,
     time_per_review_card: f32,
     time_per_lapsed_card: f32,
@@ -47,7 +46,6 @@ impl AnkiSim {
             measured_retention: (0.9, 2.5),
             difficulty_variance: 0.05,
             max_lapses: 8,
-            new_cards_per_day: 100,
             time_per_new_card: 90.0,
             time_per_review_card: 20.0,
             time_per_lapsed_card: 40.0,
@@ -95,12 +93,6 @@ impl AnkiSim {
         tmp
     }
 
-    pub fn with_new_cards_per_day(self, new_cards: u32) -> Self {
-        let mut tmp = self;
-        tmp.new_cards_per_day = new_cards;
-        tmp
-    }
-
     /// Average number of seconds spent on each new card before they become
     /// normal review cards.
     pub fn with_seconds_per_new_card(self, time: f32) -> Self {
@@ -121,6 +113,21 @@ impl AnkiSim {
         let mut tmp = self;
         tmp.time_per_lapsed_card = time;
         tmp
+    }
+
+    /// Adds N new cards to the deck.
+    pub fn add_new_cards(&mut self, n: u32) {
+        for _ in 0..n {
+            self.time_spent_on_new += self.time_per_new_card;
+            self.cards_added += 1;
+            let sampler = Normal::new(self.retention_ratio as f64, self.difficulty_variance as f64);
+            self.deck.push(Card {
+                interval: 1.0,
+                days_since_last_review: 0.0,
+                retention_ratio: sampler.sample(&mut rand::thread_rng()).max(0.01).min(0.99) as f32,
+                lapses: 0,
+            });
+        }
     }
 
     /// Simulates a single day.
@@ -159,24 +166,12 @@ impl AnkiSim {
             }
             i += 1;
         }
-
-        // Add new cards.
-        for _ in 0..self.new_cards_per_day {
-            self.time_spent_on_new += self.time_per_new_card;
-            self.cards_added += 1;
-            let sampler = Normal::new(self.retention_ratio as f64, self.difficulty_variance as f64);
-            self.deck.push(Card {
-                interval: 1.0,
-                days_since_last_review: 0.0,
-                retention_ratio: sampler.sample(&mut rand::thread_rng()).max(0.01).min(0.99) as f32,
-                lapses: 0,
-            });
-        }
     }
 
     /// Simulates multiple days.
-    pub fn simulate_n_days(&mut self, n: u32) {
+    pub fn simulate_n_days(&mut self, n: u32, new_card_per_day: u32) {
         for _ in 0..n {
+            self.add_new_cards(new_card_per_day);
             self.simulate_day();
         }
     }

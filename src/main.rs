@@ -9,8 +9,8 @@ use std::fs::File;
 use std::io::Write;
 
 fn main() {
-    // generate_chart("yar.png", 10, false, (2.0, 19.75), 18 * 4, (0.01, 1.0), 100);
-    print_vertical_slice(100, (2.0, 10.0), 33, 0.9);
+    generate_chart("yar.png", 100, false, (2.0, 10.0), 65, (0.000001, 1.0), 101);
+    // print_vertical_slice(100, (2.0, 10.0), 33, 0.9);
 }
 
 fn print_vertical_slice(
@@ -28,14 +28,13 @@ fn print_vertical_slice(
             .with_interval_factor(interval_factor)
             .with_measured_retention_ratio(measured_retention, 2.5)
             .with_lapse_interval_factor((1.0 / interval_factor).sqrt())
-            .with_difficulty_variance(0.0)
-            .with_max_lapses(999999)
-            .with_new_cards_per_day(samples)
-            .with_seconds_per_new_card(60.0 * 3.0)
+            .with_difficulty_variance(0.05)
+            .with_max_lapses(8)
+            .with_seconds_per_new_card(20.0 * 6.0)
             .with_seconds_per_review_card(20.0)
-            .with_seconds_per_lapsed_card(40.0);
+            .with_seconds_per_lapsed_card(20.0 * 2.0);
 
-        anki.simulate_n_days(365);
+        anki.simulate_n_days(365, samples);
 
         println!(
             "Interval Factor: {:.2}  |  Cards learned per hour: {:.2}  |  Lapse ratio: {:.2}",
@@ -73,11 +72,11 @@ fn generate_chart(
                 .with_lapse_interval_factor((1.0 / interval_factor).sqrt())
                 .with_difficulty_variance(0.05)
                 .with_max_lapses(8)
-                .with_new_cards_per_day(samples)
-                .with_seconds_per_new_card(120.0)
-                .with_seconds_per_review_card(20.0);
+                .with_seconds_per_new_card(20.0 * 6.0)
+                .with_seconds_per_review_card(20.0)
+                .with_seconds_per_lapsed_card(20.0 * 2.0);
 
-            anki.simulate_n_days(365);
+            anki.simulate_n_days(365, samples);
             chart[y * width + x] = anki.cards_learned_per_hour();
 
             print!(
@@ -114,21 +113,54 @@ fn generate_chart(
         }
     }
 
-    // Create the image
-    let mut image = vec![0u8; height * width * 4];
-    for i in 0..(height * width) {
-        let val = (chart[i] * 255.0) as u8;
-        image[i * 4] = val;
-        image[i * 4 + 1] = val;
-        image[i * 4 + 2] = val;
-        image[i * 4 + 3] = 255;
+    // Create the image, enlarging by the magnification factor.
+    let magnification_factor = 10;
+    let image_width = (width - 1) * magnification_factor;
+    let image_height = (height - 1) * magnification_factor;
+    let width_map_fac = (width - 1) as f64 / (image_width - 1) as f64;
+    let height_map_fac = (height - 1) as f64 / (image_height - 1) as f64;
+    let mut image = vec![0u8; image_height * image_width * 4];
+    for x in 0..image_width {
+        for y in 0..image_height {
+            let val = {
+                let small_x = x as f64 * width_map_fac;
+                let small_y = y as f64 * height_map_fac;
+                let sx1 = small_x as usize;
+                let sy1 = small_y as usize;
+                let sx2 = (sx1 + 1).min(width - 1);
+                let sy2 = (sy1 + 1).min(height - 1);
+                let alpha_x = (small_x - small_x.floor()) as f32;
+                let alpha_y = (small_y - small_y.floor()) as f32;
+
+                let left = {
+                    let val1 = chart[sy1 * width + sx1];
+                    let val2 = chart[sy2 * width + sx1];
+                    (val1 * (1.0 - alpha_y)) + (val2 * alpha_y)
+                };
+
+                let right = {
+                    let val1 = chart[sy1 * width + sx2];
+                    let val2 = chart[sy2 * width + sx2];
+                    (val1 * (1.0 - alpha_y)) + (val2 * alpha_y)
+                };
+
+                let lerped = (left * (1.0 - alpha_x)) + (right * alpha_x);
+
+                (lerped * 255.0) as u8
+            };
+            let i = y * image_width + x;
+            image[i * 4] = val;
+            image[i * 4 + 1] = val;
+            image[i * 4 + 2] = val;
+            image[i * 4 + 3] = 255;
+        }
     }
 
     // Write the image
     png_encode_mini::write_rgba_from_u8(
         &mut File::create(path).unwrap(),
         &image,
-        width as u32,
-        height as u32,
+        image_width as u32,
+        image_height as u32,
     ).unwrap();
 }
