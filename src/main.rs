@@ -4,55 +4,34 @@ extern crate png_encode_mini;
 extern crate rand;
 
 mod anki_sim;
+mod anki_sim_ana;
 
 use std::fs::File;
 use std::io::Write;
 
 fn main() {
-    generate_chart("yar.png", 100, false, (2.0, 10.0), 65, (0.000001, 1.0), 101);
-    // print_vertical_slice(100, (2.0, 10.0), 33, 0.9);
-}
-
-fn print_vertical_slice(
-    samples: u32,
-    interval_range: (f32, f32),
-    interval_cells: u32,
-    measured_retention: f32,
-) {
-    let count = interval_cells as usize;
-    let interval_step = (interval_range.1 - interval_range.0) / (interval_cells - 1) as f32;
-
-    for n in 0..count {
-        let interval_factor = interval_range.0 + (interval_step * n as f32);
-        let mut anki = anki_sim::AnkiSim::new()
-            .with_interval_factor(interval_factor)
-            .with_measured_retention_ratio(measured_retention, 2.5)
-            .with_lapse_interval_factor((1.0 / interval_factor).sqrt())
-            .with_difficulty_variance(0.05)
-            .with_max_lapses(8)
-            .with_seconds_per_new_card(20.0 * 6.0)
-            .with_seconds_per_review_card(20.0)
-            .with_seconds_per_lapsed_card(20.0 * 2.0);
-
-        anki.simulate_n_days(365, samples);
-
-        println!(
-            "Interval Factor: {:.2}  |  Cards learned per hour: {:.2}  |  Lapse ratio: {:.2}",
-            interval_factor,
-            anki.cards_learned_per_hour(),
-            anki.lapses_per_review(),
-        );
-    }
+    generate_chart(
+        "yar.png",
+        1000,
+        true,
+        (2.0, 10.0),
+        65,
+        (0.000001, 1.0),
+        101,
+        true,
+    );
+    // print_vertical_slice(1000, (2.0, 10.0), 33, 0.8);
 }
 
 fn generate_chart(
     path: &str,
     samples: u32,
-    normalize_whole: bool,
+    normalize_slices: bool,
     interval_range: (f32, f32),
     interval_cells: u32,
     retention_range: (f32, f32),
     retention_cells: u32,
+    use_analytical: bool,
 ) {
     let height = interval_cells as usize;
     let interval_step = (interval_range.1 - interval_range.0) / (interval_cells - 1) as f32;
@@ -66,18 +45,37 @@ fn generate_chart(
         let retention_ratio = retention_range.0 + (retention_step * x as f32);
         for y in 0..height {
             let interval_factor = interval_range.0 + (interval_step * y as f32);
-            let mut anki = anki_sim::AnkiSim::new()
-                .with_interval_factor(interval_factor)
-                .with_measured_retention_ratio(retention_ratio, 2.5)
-                .with_lapse_interval_factor((1.0 / interval_factor).sqrt())
-                .with_difficulty_variance(0.05)
-                .with_max_lapses(8)
-                .with_seconds_per_new_card(20.0 * 6.0)
-                .with_seconds_per_review_card(20.0)
-                .with_seconds_per_lapsed_card(20.0 * 2.0);
+            let lapse_interval_factor = 1.0 / interval_factor.sqrt();
+            let max_lapses = 8;
+            let seconds_per_new_card = 20.0 * 6.0;
+            let seconds_per_review_card = 20.0;
+            let seconds_per_lapsed_card = 20.0;
+            if use_analytical {
+                let mut anki = anki_sim_ana::AnkiSim::new()
+                    .with_interval_factor(interval_factor)
+                    .with_measured_retention_ratio(retention_ratio, 2.5)
+                    .with_lapse_interval_factor(lapse_interval_factor)
+                    .with_max_lapses(max_lapses)
+                    .with_seconds_per_new_card(seconds_per_new_card)
+                    .with_seconds_per_review_card(seconds_per_review_card)
+                    .with_seconds_per_lapsed_card(seconds_per_lapsed_card);
 
-            anki.simulate_n_days(365, samples);
-            chart[y * width + x] = anki.cards_learned_per_hour();
+                anki.simulate_n_days(365);
+                chart[y * width + x] = anki.cards_learned_per_hour();
+            } else {
+                let mut anki = anki_sim::AnkiSim::new()
+                    .with_interval_factor(interval_factor)
+                    .with_measured_retention_ratio(retention_ratio, 2.5)
+                    .with_lapse_interval_factor(lapse_interval_factor)
+                    .with_difficulty_variance(0.0)
+                    .with_max_lapses(max_lapses)
+                    .with_seconds_per_new_card(seconds_per_new_card)
+                    .with_seconds_per_review_card(seconds_per_review_card)
+                    .with_seconds_per_lapsed_card(seconds_per_lapsed_card);
+
+                anki.simulate_n_days(365, samples);
+                chart[y * width + x] = anki.cards_learned_per_hour();
+            }
 
             print!(
                 "\r{:.1}%",
@@ -88,7 +86,30 @@ fn generate_chart(
     }
     println!("\nDone.");
 
-    if !normalize_whole {
+    if use_analytical {
+        // Blur vertically to approximate interval variance.
+        let mut chart2 = vec![0.0f32; height * width];
+        for x in 0..width {
+            for y in 0..height {
+                let interval = interval_range.0 + (y as f32 * interval_step);
+                let blur_size = ((interval * 0.1) / interval_step) as usize;
+                let start = y - blur_size.min(y);
+                let end = (y + blur_size).min(height - 1);
+
+                chart2[y * width + x] = {
+                    let mut val = 0.0;
+                    for i in start..(end + 1) {
+                        val += chart[i * width + x];
+                    }
+                    val += chart[y * width + x] * ((blur_size * 2 + 1) - (end - start + 1)) as f32;
+                    val / (blur_size * 2 + 1) as f32
+                };
+            }
+        }
+        chart = chart2;
+    }
+
+    if normalize_slices {
         // Normalize each column (i.e. each interval within itself).
         for x in 0..width {
             let mut max = 0.0;
@@ -163,4 +184,36 @@ fn generate_chart(
         image_width as u32,
         image_height as u32,
     ).unwrap();
+}
+
+fn print_vertical_slice(
+    samples: u32,
+    interval_range: (f32, f32),
+    interval_cells: u32,
+    measured_retention: f32,
+) {
+    let count = interval_cells as usize;
+    let interval_step = (interval_range.1 - interval_range.0) / (interval_cells - 1) as f32;
+
+    for n in 0..count {
+        let interval_factor = interval_range.0 + (interval_step * n as f32);
+        let mut anki = anki_sim::AnkiSim::new()
+            .with_interval_factor(interval_factor)
+            .with_measured_retention_ratio(measured_retention, 2.5)
+            .with_lapse_interval_factor(1.0 / interval_factor.sqrt())
+            .with_difficulty_variance(0.00)
+            .with_max_lapses(8)
+            .with_seconds_per_new_card(20.0 * 6.0)
+            .with_seconds_per_review_card(20.0)
+            .with_seconds_per_lapsed_card(20.0 * 2.0);
+
+        anki.simulate_n_days(365, samples);
+
+        println!(
+            "Interval Factor: {:.2}  |  Cards learned per hour: {:.2}  |  Lapse ratio: {:.2}",
+            interval_factor,
+            anki.cards_learned_per_hour(),
+            anki.lapses_per_review(),
+        );
+    }
 }

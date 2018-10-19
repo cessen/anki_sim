@@ -13,6 +13,7 @@ pub struct AnkiSim {
     days_past: u32,
     review_count: u32,
     lapse_count: u32,
+    remove_lapse_count: u32,
 
     // Auto-calculated settings
     retention_ratio: f32, // Determined by interval_factor and measured_retention.
@@ -38,6 +39,7 @@ impl AnkiSim {
             days_past: 0,
             review_count: 0,
             lapse_count: 0,
+            remove_lapse_count: 0,
 
             retention_ratio: 0.9,
 
@@ -158,6 +160,7 @@ impl AnkiSim {
                     // Lapsed past max lapses
                     self.deck.swap_remove(i);
                     self.lapse_count += 1;
+                    self.remove_lapse_count += 1;
                     continue;
                 }
             } else {
