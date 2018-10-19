@@ -205,7 +205,7 @@ fn print_vertical_slice(
             .with_max_lapses(8)
             .with_seconds_per_new_card(20.0 * 6.0)
             .with_seconds_per_review_card(20.0)
-            .with_seconds_per_lapsed_card(20.0 * 2.0);
+            .with_seconds_per_lapsed_card(20.0);
 
         anki.simulate_n_days(365, samples);
 
